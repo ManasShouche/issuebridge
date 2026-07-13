@@ -1,0 +1,11 @@
+{
+  "apps": {
+    "E0BGB602B60": {
+      "app_id": "A0BG4L05D7Z",
+      "enterprise_id": "E0BGB602B60",
+      "team_domain": "issuebridge",
+      "team_id": "E0BGB602B60"
+    }
+  },
+  "default": "issuebridge"
+}
