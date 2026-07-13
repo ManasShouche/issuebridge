@@ -1,0 +1,422 @@
+[
+  {
+    "channel": "help",
+    "upstream_issue": 4821,
+    "demo": true,
+    "thread": [
+      {
+        "persona": "dev_raj",
+        "icon": ":man-technologist:",
+        "text": "anyone seen this? serving Llama-3-70B on 2x A100 and it dies on startup:\n```torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate 1.94 GiB (GPU 0; 79.20 GiB total capacity; 76.34 GiB already allocated)```\ngpu_memory_utilization is default (0.9). single GPU with the 8B model works fine. using tensor_parallel_size=2"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "classic TP2 footgun — with tensor_parallel_size=2, the KV cache math changes but the default gpu_memory_utilization=0.9 still tries to reserve 90% *per GPU* for the cache. drop it to 0.85 and set --max-model-len explicitly (e.g. 4096). the allocator is reserving capacity for max context length you'll never use"
+      },
+      {
+        "persona": "dev_raj",
+        "icon": ":man-technologist:",
+        "text": "that was it :pray: --max-model-len 4096 --gpu-memory-utilization 0.85 and it's up. wild that the OOM message doesn't give a hint about this. adding to our runbook"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 3172,
+    "demo": true,
+    "thread": [
+      {
+        "persona": "mlops_priya",
+        "icon": ":woman-scientist:",
+        "text": "fresh install on clean venv, `pip install vllm` succeeds but import explodes:\n```ImportError: /home/user/venv/lib/python3.10/site-packages/vllm/_C.cpython-310-x86_64-linux-gnu.so: undefined symbol: _ZN3c104cuda20CUDACachingAllocator6Config...```\ntorch 2.3.0, CUDA 12.1 driver, fresh ubuntu 22.04. what am I missing"
+      },
+      {
+        "persona": "maintainer_sam",
+        "icon": ":hammer_and_wrench:",
+        "text": "that symbol error is almost always a torch/vllm CUDA build mismatch — the vllm wheel was built against a different version of torch than what you have installed. solution: nuke the venv, install vllm FIRST and let pip pull its pinned torch dependency, do NOT pre-install torch yourself\n\n```\npip install --upgrade pip\npip install vllm\n```\n\nif you need a specific torch version for other reasons, check the vllm release notes for the compatible torch pin"
+      },
+      {
+        "persona": "mlops_priya",
+        "icon": ":woman-scientist:",
+        "text": "confirmed working! the pre-installed torch 2.3.0 was conflicting. vllm pulled torch 2.2.1 and everything is fine now. wish the error message said something about torch version"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "yeah this bites a lot of people. the symbol names encode the ABI and when torch changes internals between versions the .so won't link. same fix every time"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 5103,
+    "demo": true,
+    "thread": [
+      {
+        "persona": "ml_student_alex",
+        "icon": ":student:",
+        "text": "trying to serve mistral-7b-instruct-v0.2 with awq quantization:\n```ValueError: The model's max seq len (32768) is larger than the maximum number of tokens that can be stored in KV cache (11264). Try increasing `gpu_memory_utilization` or decreasing `max_model_len` when initializing the engine.```\ni'm on a single 24GB GPU (RTX 3090). using `quantization='awq'` in the engine args"
+      },
+      {
+        "persona": "maintainer_sam",
+        "icon": ":hammer_and_wrench:",
+        "text": "AWQ quantization reduces model weights size but the KV cache is still fp16 and takes the same memory. for a 24GB card with a 32k context model you need to either: (1) set --max-model-len 8192 or lower to cap context, or (2) increase gpu_memory_utilization to 0.95 (risky on 24GB). option 1 is the right call for most use cases — 8k is plenty for chat"
+      },
+      {
+        "persona": "ml_student_alex",
+        "icon": ":student:",
+        "text": "--max-model-len 8192 worked perfectly. serving at >200 tok/s now. thanks!"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 2891,
+    "thread": [
+      {
+        "persona": "infra_carlos",
+        "icon": ":construction_worker:",
+        "text": "getting intermittent 500s from the openai-compatible endpoint under load. single A100, running mixtral 8x7b. errors look like:\n```Exception in ASGI application\nvllm.engine.async_llm_engine: Engine background task failed\nValueError: Request ... not found```\nanyone else seeing this?"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "this is a known race condition when requests time out on the client side but the engine hasn't cleaned them up yet — the request ID disappears from the tracker mid-flight. workaround: set a longer client timeout so the client doesn't cancel before vllm finishes. which client are you using?"
+      },
+      {
+        "persona": "infra_carlos",
+        "icon": ":construction_worker:",
+        "text": "using python requests with timeout=30. the model latency is sometimes 40s on long outputs"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "there it is — bump your client timeout to 120s+ and you should stop seeing it. also consider streaming the response so the client gets tokens before the full generation completes"
+      },
+      {
+        "persona": "infra_carlos",
+        "icon": ":construction_worker:",
+        "text": "switching to streaming fixed it. timeouts are gone. should have done that from the start honestly"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 3456,
+    "thread": [
+      {
+        "persona": "researcher_kenji",
+        "icon": ":microscope:",
+        "text": "does vllm support Falcon-180B? trying to load it and getting:\n```ValueError: Model architectures ['FalconForCausalLM'] are not supported for now.```\non vllm 0.2.7"
+      },
+      {
+        "persona": "maintainer_sam",
+        "icon": ":hammer_and_wrench:",
+        "text": "Falcon-180B wasn't in 0.2.7 but was added in 0.3.0. `pip install --upgrade vllm` should get you there. also you'll need at least 4x A100 80GB for it — that model is ~360GB in bf16"
+      },
+      {
+        "persona": "researcher_kenji",
+        "icon": ":microscope:",
+        "text": "upgraded to 0.3.2 and it loads now. we have 8x H100s so memory is fine. appreciate the quick answer"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 4102,
+    "thread": [
+      {
+        "persona": "dev_raj",
+        "icon": ":man-technologist:",
+        "text": "how do i enable speculative decoding in vllm? i see it in the docs but the --speculative-model flag gives `error: unrecognized arguments`"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "spec decoding was added in 0.4.1 and the flag is `--num-speculative-tokens` along with `--speculative-model`. what version are you on?"
+      },
+      {
+        "persona": "dev_raj",
+        "icon": ":man-technologist:",
+        "text": "0.3.3 :facepalm: upgrading now"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "yeah 0.4.x is worth the upgrade for spec decoding alone. you can see 2-3x throughput on chat workloads with a good draft model"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 5201,
+    "thread": [
+      {
+        "persona": "mlops_priya",
+        "icon": ":woman-scientist:",
+        "text": "seeing very high first-token latency (TTFT) when serving with continuous batching — sometimes 8-10s even for simple prompts. throughput looks fine but latency is rough for interactive use. any tuning tips?"
+      },
+      {
+        "persona": "maintainer_sam",
+        "icon": ":hammer_and_wrench:",
+        "text": "continuous batching prioritizes throughput over latency by design — long sequences in the batch block short ones from starting. try:\n1. `--max-num-seqs 32` (lower batch cap)\n2. `--max-num-batched-tokens 2048` (caps how much prefill can happen per step)\n3. if you can afford it, a dedicated low-latency endpoint with small max-num-seqs and a throughput endpoint separately"
+      },
+      {
+        "persona": "mlops_priya",
+        "icon": ":woman-scientist:",
+        "text": "max-num-seqs 32 made a huge difference, TTFT dropped to ~1s. the tradeoff is real but worth it for our use case. thanks!"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 2340,
+    "thread": [
+      {
+        "persona": "infra_carlos",
+        "icon": ":construction_worker:",
+        "text": "multi-GPU question: we have 2x A6000 (48GB each) and want to serve llama-2-70b. tensor_parallel_size=2 fails at init:\n```torch.distributed.DistBackendError: NCCL error in: ../torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp:1275, unhandled system error, NCCL version 2.18.3```\nboth GPUs visible via nvidia-smi"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "NCCL needs peer-to-peer access between the GPUs. check `nvidia-smi topo -m` — you want NV2 or NV4 between the two cards (nvlink). if you see PIX (PCIe) you'll need to enable P2P explicitly or NCCL will struggle. also try setting `NCCL_P2P_DISABLE=1` as a diagnostic to see if P2P is the issue"
+      },
+      {
+        "persona": "infra_carlos",
+        "icon": ":construction_worker:",
+        "text": "`nvidia-smi topo -m` shows PIX between them (different PCIe roots). NCCL_P2P_DISABLE=1 lets it start but it's slow. we ended up getting a PCIe switch which helped. not ideal"
+      },
+      {
+        "persona": "maintainer_sam",
+        "icon": ":hammer_and_wrench:",
+        "text": "PCIe topology is a real constraint for multi-GPU inference. for A6000s without NVLink, pipeline parallelism can sometimes be more efficient than tensor parallelism — fewer cross-device all-reduces. worth trying `pipeline_parallel_size=2, tensor_parallel_size=1` and comparing throughput"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 3890,
+    "thread": [
+      {
+        "persona": "ml_student_alex",
+        "icon": ":student:",
+        "text": "can vllm serve multiple models at the same time on the same GPU? like two 7B models?"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "not natively — vllm allocates all available GPU memory to a single model at startup. you'd need to run two separate vllm processes with explicit CUDA_VISIBLE_DEVICES to partition the GPU... which only works if each model fits in half the VRAM. for a 24GB card and two 7B models that's tight but possible (7B fp16 = ~14GB, quantized to ~4-5GB each is doable)"
+      },
+      {
+        "persona": "ml_student_alex",
+        "icon": ":student:",
+        "text": "so something like CUDA_VISIBLE_DEVICES=0 vllm serve model-a --port 8000 and CUDA_VISIBLE_DEVICES=0 vllm serve model-b --port 8001 but I'm guessing they'll fight over memory?"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "exactly — set `--gpu-memory-utilization 0.45` on each process and they'll each take ~half the card. fragile but it works for light workloads. a proper solution is model multiplexing but that's not in vllm yet"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 4567,
+    "thread": [
+      {
+        "persona": "researcher_kenji",
+        "icon": ":microscope:",
+        "text": "getting weird outputs from Llama-3-8B-Instruct — it ignores the system prompt and just continues generating the user message verbatim. same model on ollama works fine"
+      },
+      {
+        "persona": "maintainer_sam",
+        "icon": ":hammer_and_wrench:",
+        "text": "are you using the chat completions endpoint or the raw completions endpoint? for instruction-tuned models you need `/v1/chat/completions` with the messages array — if you call `/v1/completions` the chat template isn't applied and the model sees raw text, not the formatted prompt"
+      },
+      {
+        "persona": "researcher_kenji",
+        "icon": ":microscope:",
+        "text": "I was using /v1/completions :facepalm: switched to /v1/chat/completions and it's behaving correctly now. the distinction makes sense in retrospect"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 5678,
+    "thread": [
+      {
+        "persona": "dev_raj",
+        "icon": ":man-technologist:",
+        "text": "is there a way to get vllm to return token probabilities / logprobs? building a calibration tool and need them"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "yes — in the completions API set `logprobs=5` (returns top-5 logprobs per token). for the chat completions API it's `logprobs=true` + `top_logprobs=5`. added in 0.4.0 I think"
+      },
+      {
+        "persona": "dev_raj",
+        "icon": ":man-technologist:",
+        "text": "perfect, that's exactly what I needed. the openai api compat is really nice for this"
+      }
+    ]
+  },
+  {
+    "channel": "general",
+    "upstream_issue": null,
+    "thread": [
+      {
+        "persona": "maintainer_sam",
+        "icon": ":hammer_and_wrench:",
+        "text": "heads up: vLLM 0.5.0 just dropped with PagedAttention v2 and fp8 kv cache support. big throughput improvements on H100s. release notes in the usual place"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "already on it. fp8 kv cache is a game changer for long context — 2x the effective context window at same memory cost"
+      },
+      {
+        "persona": "mlops_priya",
+        "icon": ":woman-scientist:",
+        "text": "does it break existing deployments? we're pinned to 0.4.3"
+      },
+      {
+        "persona": "maintainer_sam",
+        "icon": ":hammer_and_wrench:",
+        "text": "no breaking changes on the API surface. engine args added a few new optional flags but existing configs work unchanged"
+      },
+      {
+        "persona": "researcher_kenji",
+        "icon": ":microscope:",
+        "text": ":rocket: upgrading our cluster tonight"
+      }
+    ]
+  },
+  {
+    "channel": "general",
+    "upstream_issue": null,
+    "thread": [
+      {
+        "persona": "ml_student_alex",
+        "icon": ":student:",
+        "text": "random appreciation post — vllm's continuous batching makes my 4090 feel like a datacenter GPU. doing academic research on a budget and this project is the reason it's possible :pray:"
+      },
+      {
+        "persona": "dev_raj",
+        "icon": ":man-technologist:",
+        "text": "same here. open source LLM serving went from nearly impossible to afternoon-project in like 18 months"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "the team ships fast. impressive given the complexity of the CUDA code under the hood"
+      }
+    ]
+  },
+  {
+    "channel": "general",
+    "upstream_issue": null,
+    "thread": [
+      {
+        "persona": "infra_carlos",
+        "icon": ":construction_worker:",
+        "text": "anyone using vllm in k8s? curious what your resource request/limit strategy is for GPU pods"
+      },
+      {
+        "persona": "mlops_priya",
+        "icon": ":woman-scientist:",
+        "text": "we set limits=requests for GPU (nvidia.com/gpu: 1) and leave CPU at 4 cores + 32Gi RAM. no overcommit on GPU"
+      },
+      {
+        "persona": "infra_carlos",
+        "icon": ":construction_worker:",
+        "text": "makes sense. do you bother with NUMA pinning?"
+      },
+      {
+        "persona": "mlops_priya",
+        "icon": ":woman-scientist:",
+        "text": "only for the multi-GPU pods. single GPU is fine without it. the default scheduler usually does the right thing"
+      },
+      {
+        "persona": "researcher_kenji",
+        "icon": ":microscope:",
+        "text": "we use GPU time-slicing on dev nodes to save cost — not recommended for prod but fine for testing"
+      }
+    ]
+  },
+  {
+    "channel": "general",
+    "upstream_issue": null,
+    "thread": [
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "benchmark numbers for anyone curious — llama-3-8b on A100 80GB: ~2800 tok/s throughput at batch size 256 with vllm 0.5.0. comparison: raw HF transformers is about 400 tok/s at batch 8 (can't do 256 without paged attn)"
+      },
+      {
+        "persona": "dev_raj",
+        "icon": ":man-technologist:",
+        "text": "7x speedup is wild. what's the latency profile at batch 256?"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "TTFT ~800ms, per-token ~3ms at that throughput. for interactive use you'd back off to batch 32 and get TTFT ~200ms"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 6012,
+    "thread": [
+      {
+        "persona": "ml_student_alex",
+        "icon": ":student:",
+        "text": "how do I pass a custom chat template to vllm? I have a model with a non-standard instruct format"
+      },
+      {
+        "persona": "maintainer_sam",
+        "icon": ":hammer_and_wrench:",
+        "text": "use `--chat-template /path/to/template.jinja` when starting the server. the template is a Jinja2 file in the same format as HuggingFace's chat_template field in tokenizer_config.json. you can also extract the template from the model's tokenizer_config and save it as a file to start from"
+      },
+      {
+        "persona": "ml_student_alex",
+        "icon": ":student:",
+        "text": "worked. I had to tweak the jinja syntax a bit (the model's template used some transformers-specific extensions) but once I cleaned it up vllm accepted it. adding this to the team wiki"
+      }
+    ]
+  },
+  {
+    "channel": "help",
+    "upstream_issue": 4899,
+    "thread": [
+      {
+        "persona": "infra_carlos",
+        "icon": ":construction_worker:",
+        "text": "production incident question (not urgent, post-mortem): we had vllm OOM-kill after ~6 hours of stable operation. memory grows slowly over time. using llama-2-13b, no quantization, single A100. is there a known memory leak?"
+      },
+      {
+        "persona": "gpu_wrangler",
+        "icon": ":wrench:",
+        "text": "there was a KV cache block leak in some 0.3.x versions when requests were cancelled mid-generation (e.g. client disconnects). was it fixed in your version? check if you see a lot of CANCELLED requests in the logs around the time memory starts climbing"
+      },
+      {
+        "persona": "infra_carlos",
+        "icon": ":construction_worker:",
+        "text": "lots of cancelled requests, yeah — we have aggressive client timeouts. is there a fix?"
+      },
+      {
+        "persona": "maintainer_sam",
+        "icon": ":hammer_and_wrench:",
+        "text": "patched in 0.3.3. updating should fix it. if you can't update immediately, reduce client timeout aggressiveness — the leak happens when cancel arrives during KV cache prefill"
+      },
+      {
+        "persona": "infra_carlos",
+        "icon": ":construction_worker:",
+        "text": "updated to 0.4.0 (skipped 0.3.3, already had it staged). running for 18 hours without the growth. thanks for the context"
+      }
+    ]
+  }
+]
