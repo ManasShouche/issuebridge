@@ -43,10 +43,6 @@ def _bootstrap_env() -> None:
 
 _bootstrap_env()
 
-# Log SLACK/TEAM env vars injected by slack run so we can find workspace team_id
-_slack_env = {k: (v[:20] + "...") if len(v) > 20 else v
-              for k, v in os.environ.items() if any(x in k for x in ("SLACK", "TEAM", "WORKSPACE"))}
-logging.getLogger(__name__).info(f"Injected env: {_slack_env}")
 
 app = AsyncApp(
     token=os.environ.get("SLACK_BOT_TOKEN"),
