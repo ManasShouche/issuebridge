@@ -57,3 +57,6 @@ tmp.txt
 # Slack CLI local app + cache
 .slack/apps.dev.json
 .slack/cache/
+
+# Claude assistant context (personal, not for the repo)
+.claude/
