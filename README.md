@@ -4,6 +4,8 @@
 
 # IssueBridge
 
+> 🏆 Built for the **Slack Agent Builder Challenge** (New Slack Agent track) — showcasing Slack's **Real-Time Search API** and the **Model Context Protocol (MCP)**.
+
 **A maintainer agent that searches your GitHub issues *and* your Slack history — because half your project's answers never made it to GitHub.**
 
 Open-source maintainers already have AI triage for GitHub (Dosu and friends). But in active communities like vLLM's, half the project's knowledge lives in Slack: bugs reported informally in `#help`, workarounds shared in passing, decisions made in a thread that never reaches the tracker. No GitHub-side tool can see that — searching a live workspace in real time wasn't something an external agent could do at all, until Slack's Real-Time Search API. IssueBridge is the agent that closes that gap.
