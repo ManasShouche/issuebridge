@@ -1,0 +1,13 @@
+slack-sdk==3.43.0
+slack-bolt==1.29.0
+slack-cli-hooks==0.3.0
+claude-agent-sdk==0.2.114
+aiohttp==3.14.1
+python-dotenv==1.2.2
+anthropic>=0.40.0
+requests>=2.32.0
+httpx>=0.28.0
+
+pytest==9.1.1
+pytest-asyncio==1.4.0
+ruff==0.15.20
